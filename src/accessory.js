@@ -1001,12 +1001,14 @@ class MirAIeAccessory {
       this.state.roomTemperature = this._parseRoomTemp(status.rmtmp);
     }
 
+    const safeStringLower = (val) => (typeof val === 'string' ? val.toLowerCase() : val);
+
     if (status.ps !== undefined) {
-      this.state.power = status.ps.toLowerCase();
+      this.state.power = safeStringLower(status.ps);
     }
 
     if (status.acfs !== undefined) {
-      this.state.fanMode = status.acfs;
+      this.state.fanMode = safeStringLower(status.acfs);
     }
 
     if (status.acvs !== undefined) {
@@ -1018,22 +1020,22 @@ class MirAIeAccessory {
     }
 
     if (status.acdc !== undefined) {
-      this.state.display = status.acdc;
+      this.state.display = safeStringLower(status.acdc);
     }
 
     if (status.acmd !== undefined) {
-      this.state.hvacMode = status.acmd;
+      this.state.hvacMode = safeStringLower(status.acmd);
     }
 
     if (status.cnv !== undefined) {
       this.state.convertiMode = status.cnv;
     }
 
-    if (status.acpm === 'on') {
+    if (safeStringLower(status.acpm) === 'on') {
       this.state.presetMode = PRESET_MODE.BOOST;
-    } else if (status.acem === 'on') {
+    } else if (safeStringLower(status.acem) === 'on') {
       this.state.presetMode = PRESET_MODE.ECO;
-    } else if (status.acec === 'on') {
+    } else if (safeStringLower(status.acec) === 'on') {
       this.state.presetMode = PRESET_MODE.CLEAN;
     } else if (
       status.acpm !== undefined ||
