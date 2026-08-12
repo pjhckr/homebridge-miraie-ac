@@ -1,0 +1,28 @@
+{
+  "name": "homebridge-miraie-ac",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for Panasonic MirAIe Air Conditioners",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "homebridge -D -P .",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "panasonic",
+    "miraie",
+    "air-conditioner",
+    "hvac",
+    "smart-home"
+  ],
+  "author": "MirAIe Homebridge Plugin",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "dependencies": {
+    "mqtt": "^5.0.0",
+    "axios": "^1.6.0"
+  }
+}

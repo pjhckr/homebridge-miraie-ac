@@ -1,0 +1,86 @@
+{
+  "pluginAlias": "MirAIeAC",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Homebridge plugin for Panasonic MirAIe Air Conditioners",
+  "footerDisplay": "Each AC appears as a primary accessory card in HomeKit (Power, Temp, HVAC Mode, Room Temp, Fan Speed, Swing). Extra switches (Eco, Powerful, LED Display, Converti) are dynamically detected and named based on the capabilities reported by your AC via the MirAIe MQTT broker.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Plugin Name",
+        "type": "string",
+        "default": "MirAIeAC",
+        "required": true
+      },
+      "username": {
+        "title": "Username",
+        "type": "string",
+        "description": "Your MirAIe account mobile number (e.g. 9876543210) or email address",
+        "required": true
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "description": "Your MirAIe account password",
+        "required": true
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (seconds)",
+        "type": "integer",
+        "default": 300,
+        "minimum": 60,
+        "maximum": 3600,
+        "description": "How often to poll the API for status updates (as a fallback to MQTT). Default: 300s (5 min)"
+      },
+      "enableDrySwitch": {
+        "title": "Enable Dry Mode Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose a switch to toggle Dry / Dehumidify mode"
+      },
+      "enableEcoSwitch": {
+        "title": "Enable Eco Mode Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose a switch to toggle Eco mode"
+      },
+      "enablePowerfulSwitch": {
+        "title": "Enable Powerful / Turbo Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose a switch to toggle Powerful / Boost mode"
+      },
+      "enableDisplaySwitch": {
+        "title": "Enable AC Display LED Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose a switch to toggle the AC front panel LED display"
+      },
+      "enableTemperatureSensor": {
+        "title": "Enable Room Temperature Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose a room temperature sensor service"
+      },
+      "enableCleanSwitch": {
+        "title": "Enable Self-Clean Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose a switch to toggle Self-Clean mode"
+      },
+      "enableConvertiControl": {
+        "title": "Enable Converti Capacity Control",
+        "type": "boolean",
+        "default": false,
+        "description": "Expose a slider to control Converti capacity (40% to 110%)"
+      },
+      "enableSeparateFanService": {
+        "title": "Enable Separate Fan Speed Tile",
+        "type": "boolean",
+        "default": false,
+        "description": "Create a separate Fan tile. (Note: Fan speed is already integrated into the main AC card in HomeKit)"
+      }
+    }
+  }
+}
