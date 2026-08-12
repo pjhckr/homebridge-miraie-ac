@@ -23,7 +23,7 @@
     "url": "https://github.com/pjhckr/homebridge-miraie-ac/issues"
   },
   "homepage": "https://github.com/pjhckr/homebridge-miraie-ac#readme",
-  "author": "pjhckr",
+  "author": "Pranshu Jain (pjhckr)",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0",
