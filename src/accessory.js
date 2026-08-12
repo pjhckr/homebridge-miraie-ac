@@ -140,6 +140,14 @@ class MirAIeAccessory {
       this.displaySwitchService = null;
     }
 
+    if (status.acmd !== undefined) {
+      this.log.info(`[${this.device.friendlyName}] Enabling Dry Mode switch`);
+      this._setupDrySwitch();
+    } else {
+      this._removeServiceIfExists(this.Service.Switch, 'dry');
+      this.drySwitchService = null;
+    }
+
     // Self-Clean Switch (only if AC payload reports acec)
     if (status.acec !== undefined) {
       this.log.info(`[${this.device.friendlyName}] Enabling Self-Clean switch`);
@@ -509,6 +517,42 @@ class MirAIeAccessory {
   }
 
   // ═══════════════════════════════════════════════════════════
+  //  DRY MODE SWITCH SERVICE
+  // ═══════════════════════════════════════════════════════════
+
+  _setupDrySwitch() {
+    const subtype = 'dry';
+    const name = 'Dry Mode';
+    
+    this.drySwitchService =
+      this.accessory.getServiceById(this.Service.Switch, subtype) ||
+      this.accessory.addService(this.Service.Switch, name, subtype);
+
+    this._setServiceName(this.drySwitchService, name);
+
+    this.drySwitchService
+      .getCharacteristic(this.Characteristic.On)
+      .onGet(() => this.state.hvacMode === HVAC_MODE.DRY)
+      .onSet(async (value) => {
+        const mode = value ? HVAC_MODE.DRY : HVAC_MODE.COOL;
+        this.state.hvacMode = mode;
+        try {
+          await this.broker.setHVACMode(this.device.controlTopic, mode);
+          this.log.info(`[${this.device.friendlyName}] Dry Mode: ${value ? 'ON' : 'OFF'}`);
+          
+          if (value && this.state.power === POWER_MODE.OFF) {
+            this.state.power = POWER_MODE.ON;
+            await this.broker.setPower(this.device.controlTopic, POWER_MODE.ON);
+          }
+          
+          this._pushUpdatesToHomeKit();
+        } catch (error) {
+          this.log.error(`[${this.device.friendlyName}] Failed to set dry mode:`, error.message);
+        }
+      });
+  }
+
+  // ═══════════════════════════════════════════════════════════
   //  FAN-ONLY MODE SWITCH SERVICE
   // ═══════════════════════════════════════════════════════════
 
@@ -749,6 +793,7 @@ class MirAIeAccessory {
     try {
       await this.broker.setPower(this.device.controlTopic, power);
       this.log.info(`[${this.device.friendlyName}] Power: ${power}`);
+      this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set power:`, error.message);
     }
@@ -957,7 +1002,7 @@ class MirAIeAccessory {
     }
 
     if (status.ps !== undefined) {
-      this.state.power = status.ps;
+      this.state.power = status.ps.toLowerCase();
     }
 
     if (status.acfs !== undefined) {
@@ -1046,6 +1091,12 @@ class MirAIeAccessory {
       this.heaterCoolerService
         .getCharacteristic(this.Characteristic.RotationSpeed)
         .updateValue(this._getRotationSpeed());
+    }
+
+    if (this.drySwitchService) {
+      this.drySwitchService
+        .getCharacteristic(this.Characteristic.On)
+        .updateValue(this.state.hvacMode === HVAC_MODE.DRY && this.state.power === POWER_MODE.ON);
     }
 
     // Fan Speed Switches
