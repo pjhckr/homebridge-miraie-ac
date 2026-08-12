@@ -69,7 +69,6 @@ class MirAIeAccessory {
       enableTemperatureSensor: cfg.enableTemperatureSensor !== false,
       enableCleanSwitch: cfg.enableCleanSwitch !== false,
       enableConvertiControl: cfg.enableConvertiControl !== false,
-      enableSeparateFanService: !!cfg.enableSeparateFanService,
     };
 
     this._capabilitiesConfigured = false;
@@ -303,11 +302,6 @@ class MirAIeAccessory {
 
   _setupFanService() {
     const subtype = 'fan';
-    if (!this.options.enableSeparateFanService) {
-      this._removeServiceIfExists(this.Service.Fanv2, subtype);
-      this.fanService = null;
-      return;
-    }
 
     const name = 'Fan';
     this.fanService =

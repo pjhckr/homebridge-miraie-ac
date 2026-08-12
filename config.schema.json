@@ -74,12 +74,6 @@
         "type": "boolean",
         "default": false,
         "description": "Expose a slider to control Converti capacity (40% to 110%)"
-      },
-      "enableSeparateFanService": {
-        "title": "Enable Separate Fan Speed Tile",
-        "type": "boolean",
-        "default": false,
-        "description": "Create a separate Fan tile. (Note: Fan speed is already integrated into the main AC card in HomeKit)"
       }
     }
   }
