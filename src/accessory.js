@@ -62,7 +62,6 @@ class MirAIeAccessory {
 
     const cfg = platform.config || {};
     this.options = {
-      enableDrySwitch: cfg.enableDrySwitch !== false,
       enableEcoSwitch: cfg.enableEcoSwitch !== false,
       enablePowerfulSwitch: cfg.enablePowerfulSwitch !== false,
       enableDisplaySwitch: cfg.enableDisplaySwitch !== false,
@@ -185,11 +184,11 @@ class MirAIeAccessory {
     }
     
     if (status.acfs !== undefined) {
-      this.log.info(`[${this.device.friendlyName}] Enabling dedicated Fan control`);
-      this._setupFanService();
+      this.log.info(`[${this.device.friendlyName}] Enabling dedicated Fan switches`);
+      this._setupFanSpeedSwitches();
+      this.fanService = null;
     } else {
       this._removeServiceIfExists(this.Service.Fanv2, 'fan');
-      this.fanService = null;
     }
     
     // Permanently remove Fan-Only Mode switch
@@ -300,32 +299,44 @@ class MirAIeAccessory {
   //  FAN SERVICE (Granular Fan Speed: Auto, Quiet, Low, Med, High)
   // ═══════════════════════════════════════════════════════════
 
-  _setupFanService() {
-    const subtype = 'fan';
+  _setupFanSpeedSwitches() {
+    // Remove the old dedicated fan slider if it existed
+    this._removeServiceIfExists(this.Service.Fanv2, 'fan');
 
-    const name = 'Fan';
-    this.fanService =
-      this.accessory.getServiceById(this.Service.Fanv2, subtype) ||
-      this.accessory.addService(this.Service.Fanv2, name, subtype);
+    this.fanSwitches = {};
+    const speeds = [
+      { mode: FAN_MODE.AUTO, name: 'Fan Auto', subtype: 'fan_auto' },
+      { mode: FAN_MODE.QUIET, name: 'Fan Quiet', subtype: 'fan_quiet' },
+      { mode: FAN_MODE.LOW, name: 'Fan Low', subtype: 'fan_low' },
+      { mode: FAN_MODE.MEDIUM, name: 'Fan Medium', subtype: 'fan_medium' },
+      { mode: FAN_MODE.HIGH, name: 'Fan High', subtype: 'fan_high' }
+    ];
 
-    this._setServiceName(this.fanService, name);
+    for (const speed of speeds) {
+      const svc = this.accessory.getServiceById(this.Service.Switch, speed.subtype) ||
+                  this.accessory.addService(this.Service.Switch, speed.name, speed.subtype);
+      this._setServiceName(svc, speed.name);
 
-    this.fanService
-      .getCharacteristic(this.Characteristic.Active)
-      .onGet(() => this._getActive())
-      .onSet((value) => this._setActive(value));
-
-    // Rotation speed: 0=Auto, 25=Quiet, 50=Low, 75=Medium, 100=High
-    this.fanService
-      .getCharacteristic(this.Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 25 })
-      .onGet(() => this._getFanRotationSpeed())
-      .onSet((value) => this._setFanRotationSpeed(value));
-
-    this.fanService
-      .getCharacteristic(this.Characteristic.SwingMode)
-      .onGet(() => this._getSwingMode())
-      .onSet((value) => this._setSwingMode(value));
+      svc.getCharacteristic(this.Characteristic.On)
+        .onGet(() => this.state.fanMode === speed.mode)
+        .onSet(async (value) => {
+          if (value) {
+            this.state.fanMode = speed.mode;
+            try {
+              await this.broker.setFanMode(this.device.controlTopic, speed.mode);
+              this.log.info(`[${this.device.friendlyName}] Fan: ${speed.mode}`);
+              this._pushUpdatesToHomeKit();
+            } catch (error) {
+              this.log.error(`[${this.device.friendlyName}] Failed to set fan:`, error.message);
+            }
+          } else {
+            // Turning off a switch does nothing, as one mode must always be active.
+            // We just force an update to snap the switch back on if it was the active one.
+            setTimeout(() => this._pushUpdatesToHomeKit(), 50);
+          }
+        });
+      this.fanSwitches[speed.mode] = svc;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -495,45 +506,6 @@ class MirAIeAccessory {
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set converti mode:`, error.message);
     }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  //  DRY MODE SWITCH SERVICE
-  // ═══════════════════════════════════════════════════════════
-
-  _setupDrySwitch() {
-    const subtype = 'dry';
-    if (!this.options.enableDrySwitch) {
-      this._removeServiceIfExists(this.Service.Switch, subtype);
-      this.drySwitchService = null;
-      return;
-    }
-
-    const name = 'Dry Mode';
-    this.drySwitchService =
-      this.accessory.getServiceById(this.Service.Switch, subtype) ||
-      this.accessory.addService(
-        this.Service.Switch,
-        name,
-        subtype,
-      );
-
-    this._setServiceName(this.drySwitchService, name);
-
-    this.drySwitchService
-      .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.hvacMode === HVAC_MODE.DRY)
-      .onSet(async (value) => {
-        const mode = value ? HVAC_MODE.DRY : HVAC_MODE.COOL;
-        this.state.hvacMode = mode;
-        try {
-          await this.broker.setHVACMode(this.device.controlTopic, mode);
-          this.log.info(`[${this.device.friendlyName}] Dry Mode: ${value ? 'ON' : 'OFF'}`);
-          this._pushUpdatesToHomeKit();
-        } catch (error) {
-          this.log.error(`[${this.device.friendlyName}] Failed to set dry mode:`, error.message);
-        }
-      });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1076,15 +1048,11 @@ class MirAIeAccessory {
         .updateValue(this._getRotationSpeed());
     }
 
-    // Fan service
-    if (this.fanService) {
-      this.fanService
-        .getCharacteristic(this.Characteristic.Active)
-        .updateValue(this._getActive());
-
-      this.fanService
-        .getCharacteristic(this.Characteristic.RotationSpeed)
-        .updateValue(this._getFanRotationSpeed());
+    // Fan Speed Switches
+    if (this.fanSwitches) {
+      for (const [mode, svc] of Object.entries(this.fanSwitches)) {
+        svc.getCharacteristic(this.Characteristic.On).updateValue(this.state.fanMode === mode);
+      }
     }
 
     // Vertical Swing
@@ -1122,15 +1090,6 @@ class MirAIeAccessory {
         .getCharacteristic(this.Characteristic.On)
         .updateValue(this.state.convertiMode === CONVERTI_MODE.C40);
     }
-
-    // Dry switch
-    if (this.drySwitchService) {
-      this.drySwitchService
-        .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.hvacMode === HVAC_MODE.DRY);
-    }
-
-
 
     // Temperature sensor
     if (this.temperatureSensorService) {
