@@ -83,15 +83,16 @@ class MirAIeAccessory {
   _setServiceName(service, name) {
     if (!service.testCharacteristic(this.Characteristic.Name)) {
       service.addCharacteristic(this.Characteristic.Name);
+      service.setCharacteristic(this.Characteristic.Name, name);
     }
-    service.setCharacteristic(this.Characteristic.Name, name);
     
     // Set ConfiguredName for iOS 14+ to properly label sub-switches inside the AC card
+    // Only set it initially to avoid overwriting user customizations (which resets room assignments)
     if (this.Characteristic.ConfiguredName) {
       if (!service.testCharacteristic(this.Characteristic.ConfiguredName)) {
         service.addCharacteristic(this.Characteristic.ConfiguredName);
+        service.setCharacteristic(this.Characteristic.ConfiguredName, name);
       }
-      service.setCharacteristic(this.Characteristic.ConfiguredName, name);
     }
   }
 
@@ -1012,11 +1013,11 @@ class MirAIeAccessory {
     }
 
     if (status.acvs !== undefined) {
-      this.state.vSwing = status.acvs;
+      this.state.vSwing = parseInt(status.acvs, 10);
     }
 
     if (status.achs !== undefined) {
-      this.state.hSwing = status.achs;
+      this.state.hSwing = parseInt(status.achs, 10);
     }
 
     if (status.acdc !== undefined) {
@@ -1027,8 +1028,10 @@ class MirAIeAccessory {
       this.state.hvacMode = safeStringLower(status.acmd);
     }
 
-    if (status.cnv !== undefined) {
-      this.state.convertiMode = status.cnv;
+    if (status.cnv !== undefined && status.cnv !== 'NA') {
+      this.state.convertiMode = parseInt(status.cnv, 10);
+    } else if (status.cnv === 'NA') {
+      this.state.convertiMode = CONVERTI_MODE.OFF;
     }
 
     if (safeStringLower(status.acpm) === 'on') {
@@ -1170,23 +1173,25 @@ class MirAIeAccessory {
 
     this._configureDynamicCapabilities(status);
 
+    const safeStringLower = (val) => (typeof val === 'string' ? val.toLowerCase() : val);
+
     this.state.isOnline = status.onlineStatus === 'true';
     const parsedTemp = parseFloat(status.actmp) || 24.0;
     this.state.temperature = Math.min(MAX_TEMPERATURE, Math.max(MIN_TEMPERATURE, parsedTemp));
     this.state.roomTemperature = this._parseRoomTemp(status.rmtmp);
-    this.state.power = status.ps || POWER_MODE.OFF;
-    this.state.fanMode = status.acfs || FAN_MODE.AUTO;
-    this.state.vSwing = status.acvs !== undefined ? status.acvs : SWING_MODE.AUTO;
-    this.state.hSwing = status.achs !== undefined ? status.achs : SWING_MODE.AUTO;
-    this.state.display = status.acdc || DISPLAY_MODE.ON;
-    this.state.hvacMode = status.acmd || HVAC_MODE.AUTO;
-    this.state.convertiMode = status.cnv !== undefined ? status.cnv : CONVERTI_MODE.OFF;
+    this.state.power = safeStringLower(status.ps) || POWER_MODE.OFF;
+    this.state.fanMode = safeStringLower(status.acfs) || FAN_MODE.AUTO;
+    this.state.vSwing = status.acvs !== undefined ? parseInt(status.acvs, 10) : SWING_MODE.AUTO;
+    this.state.hSwing = status.achs !== undefined ? parseInt(status.achs, 10) : SWING_MODE.AUTO;
+    this.state.display = safeStringLower(status.acdc) || DISPLAY_MODE.ON;
+    this.state.hvacMode = safeStringLower(status.acmd) || HVAC_MODE.AUTO;
+    this.state.convertiMode = status.cnv !== undefined && status.cnv !== 'NA' ? parseInt(status.cnv, 10) : CONVERTI_MODE.OFF;
 
-    if (status.acpm === 'on') {
+    if (safeStringLower(status.acpm) === 'on') {
       this.state.presetMode = PRESET_MODE.BOOST;
-    } else if (status.acem === 'on') {
+    } else if (safeStringLower(status.acem) === 'on') {
       this.state.presetMode = PRESET_MODE.ECO;
-    } else if (status.acec === 'on') {
+    } else if (safeStringLower(status.acec) === 'on') {
       this.state.presetMode = PRESET_MODE.CLEAN;
     } else {
       this.state.presetMode = PRESET_MODE.NONE;
