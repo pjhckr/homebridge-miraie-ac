@@ -158,8 +158,7 @@ class MirAIeBroker {
    */
   async publish(topic, payload) {
     if (!this.client || !this._connected) {
-      this.log.error('Cannot publish: MQTT not connected');
-      return;
+      throw new Error('Cannot publish: MQTT not connected');
     }
 
     return new Promise((resolve, reject) => {

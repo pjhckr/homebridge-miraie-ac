@@ -67,7 +67,8 @@ class MirAIeAccessory {
       enableDisplaySwitch: cfg.enableDisplaySwitch !== false,
       enableTemperatureSensor: cfg.enableTemperatureSensor !== false,
       enableCleanSwitch: cfg.enableCleanSwitch !== false,
-      enableConvertiControl: cfg.enableConvertiControl !== false,
+      enableConvertiControl: cfg.enableConvertiControl === true,
+      enableDrySwitch: cfg.enableDrySwitch !== false,
     };
 
     this._capabilitiesConfigured = false;
@@ -174,7 +175,6 @@ class MirAIeAccessory {
     this._removeServiceIfExists(this.Service.Fanv2, 'converti');
     this._removeServiceIfExists(this.Service.Lightbulb, 'converti');
 
-    // Dynamic Fan/Swing Cleanups
     // Dynamic Fan/Swing Capabilities
     if (status.acvs !== undefined) {
       this.log.info(`[${this.device.friendlyName}] Enabling Vertical Swing control`);
@@ -195,15 +195,18 @@ class MirAIeAccessory {
     if (status.acfs !== undefined) {
       this.log.info(`[${this.device.friendlyName}] Enabling dedicated Fan switches`);
       this._setupFanSpeedSwitches();
-      this.fanService = null;
     } else {
       this._removeServiceIfExists(this.Service.Fanv2, 'fan');
     }
     
-    // Permanently remove Fan-Only Mode switch
+    // Permanently remove legacy Fan-Only Mode switch
     this._removeServiceIfExists(this.Service.Switch, 'fanmode');
-    this.fanModeSwitchService = null;
-    if (status.rmtmp === undefined) {
+
+    // Temperature Sensor
+    if (status.rmtmp !== undefined) {
+      this.log.info(`[${this.device.friendlyName}] Enabling Temperature Sensor`);
+      this._setupTemperatureSensorService();
+    } else {
       this._removeServiceIfExists(this.Service.TemperatureSensor);
       this.temperatureSensorService = null;
     }
@@ -345,6 +348,9 @@ class MirAIeAccessory {
           }
         });
       this.fanSwitches[speed.mode] = svc;
+      if (this.heaterCoolerService) {
+        this.heaterCoolerService.addLinkedService(svc);
+      }
     }
   }
 
@@ -365,6 +371,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.vSwingService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.vSwingService);
+    }
 
     this.vSwingService
       .getCharacteristic(this.Characteristic.Active)
@@ -413,6 +422,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.hSwingService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.hSwingService);
+    }
 
     this.hSwingService
       .getCharacteristic(this.Characteristic.Active)
@@ -467,6 +479,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.convertiHcSwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.convertiHcSwitchService);
+    }
 
     this.convertiHcSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -496,6 +511,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.converti40SwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.converti40SwitchService);
+    }
 
     this.converti40SwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -523,6 +541,13 @@ class MirAIeAccessory {
 
   _setupDrySwitch() {
     const subtype = 'dry';
+
+    if (!this.options.enableDrySwitch) {
+      this._removeServiceIfExists(this.Service.Switch, subtype);
+      this.drySwitchService = null;
+      return;
+    }
+
     const name = 'Dry Mode';
     
     this.drySwitchService =
@@ -530,10 +555,13 @@ class MirAIeAccessory {
       this.accessory.addService(this.Service.Switch, name, subtype);
 
     this._setServiceName(this.drySwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.drySwitchService);
+    }
 
     this.drySwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.hvacMode === HVAC_MODE.DRY)
+      .onGet(() => this.state.hvacMode === HVAC_MODE.DRY && this.state.power === POWER_MODE.ON)
       .onSet(async (value) => {
         const mode = value ? HVAC_MODE.DRY : HVAC_MODE.COOL;
         this.state.hvacMode = mode;
@@ -553,44 +581,6 @@ class MirAIeAccessory {
       });
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  FAN-ONLY MODE SWITCH SERVICE
-  // ═══════════════════════════════════════════════════════════
-
-  _setupFanModeSwitch() {
-    const subtype = 'fanmode';
-    if (!this.options.enableFanModeSwitch) {
-      this._removeServiceIfExists(this.Service.Switch, subtype);
-      this.fanModeSwitchService = null;
-      return;
-    }
-
-    const name = 'Fan Mode';
-    this.fanModeSwitchService =
-      this.accessory.getServiceById(this.Service.Switch, subtype) ||
-      this.accessory.addService(
-        this.Service.Switch,
-        name,
-        subtype,
-      );
-
-    this._setServiceName(this.fanModeSwitchService, name);
-
-    this.fanModeSwitchService
-      .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.hvacMode === HVAC_MODE.FAN)
-      .onSet(async (value) => {
-        const mode = value ? HVAC_MODE.FAN : HVAC_MODE.COOL;
-        this.state.hvacMode = mode;
-        try {
-          await this.broker.setHVACMode(this.device.controlTopic, mode);
-          this.log.info(`[${this.device.friendlyName}] Fan-Only Mode: ${value ? 'ON' : 'OFF'}`);
-          this._pushUpdatesToHomeKit();
-        } catch (error) {
-          this.log.error(`[${this.device.friendlyName}] Failed to set fan mode:`, error.message);
-        }
-      });
-  }
 
   // ═══════════════════════════════════════════════════════════
   //  POWERFUL / TURBO SWITCH SERVICE
@@ -614,6 +604,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.boostSwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.boostSwitchService);
+    }
 
     this.boostSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -653,6 +646,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.cleanSwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.cleanSwitchService);
+    }
 
     this.cleanSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -692,6 +688,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.ecoSwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.ecoSwitchService);
+    }
 
     this.ecoSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -731,6 +730,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.displaySwitchService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.displaySwitchService);
+    }
 
     this.displaySwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -767,6 +769,9 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.temperatureSensorService, name);
+    if (this.heaterCoolerService) {
+      this.heaterCoolerService.addLinkedService(this.temperatureSensorService);
+    }
 
     this.temperatureSensorService
       .getCharacteristic(this.Characteristic.CurrentTemperature)
@@ -880,26 +885,6 @@ class MirAIeAccessory {
     }
   }
 
-  _getSwingMode() {
-    return this.state.vSwing === SWING_MODE.AUTO
-      ? this.Characteristic.SwingMode.SWING_ENABLED
-      : this.Characteristic.SwingMode.SWING_DISABLED;
-  }
-
-  async _setSwingMode(value) {
-    const swing =
-      value === this.Characteristic.SwingMode.SWING_ENABLED
-        ? SWING_MODE.AUTO
-        : SWING_MODE.ONE;
-    this.state.vSwing = swing;
-    try {
-      await this.broker.setVerticalSwing(this.device.controlTopic, swing);
-      this.log.info(`[${this.device.friendlyName}] Swing: ${swing === SWING_MODE.AUTO ? 'Auto' : 'Fixed'}`);
-      this._pushUpdatesToHomeKit();
-    } catch (error) {
-      this.log.error(`[${this.device.friendlyName}] Failed to set swing:`, error.message);
-    }
-  }
 
   _getRotationSpeed() {
     switch (this.state.fanMode) {
@@ -936,13 +921,6 @@ class MirAIeAccessory {
     }
   }
 
-  _getFanRotationSpeed() {
-    return this._getRotationSpeed();
-  }
-
-  async _setFanRotationSpeed(value) {
-    return this._setRotationSpeed(value);
-  }
 
   _updatePresetSwitches() {
     if (this.ecoSwitchService) {
@@ -1089,9 +1067,6 @@ class MirAIeAccessory {
         .getCharacteristic(this.Characteristic.HeatingThresholdTemperature)
         .updateValue(this.state.temperature);
 
-      this.heaterCoolerService
-        .getCharacteristic(this.Characteristic.SwingMode)
-        .updateValue(this._getSwingMode());
 
       this.heaterCoolerService
         .getCharacteristic(this.Characteristic.RotationSpeed)

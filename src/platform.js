@@ -130,6 +130,7 @@ class MirAIePlatform {
       if (accessory) {
         // Existing accessory — update it
         this.log.info(`Restoring cached accessory: ${device.friendlyName}`);
+        accessory.context.device = device;
         const handler = new MirAIeAccessory(this, accessory, device);
         this.mirAIeAccessories.set(device.id, handler);
         this.api.updatePlatformAccessories([accessory]);

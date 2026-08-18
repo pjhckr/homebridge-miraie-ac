@@ -67,6 +67,8 @@ class MirAIeAPI {
         this.log.info('MirAIe authentication successful');
         return true;
       }
+
+      throw new Error(`Authentication failed with status ${response.status}`);
     } catch (error) {
       this.log.error('MirAIe authentication failed:', error.message);
       if (error.response) {
@@ -79,25 +81,56 @@ class MirAIeAPI {
 
   /**
    * Schedule automatic token refresh
+   * Honors the server's actual TTL. Uses chained timers to work around
+   * JavaScript's setTimeout max of ~24.8 days (2^31-1 ms).
    */
   _scheduleTokenRefresh() {
     if (this._tokenRefreshTimer) {
       clearTimeout(this._tokenRefreshTimer);
     }
 
-    // Refresh at 80% of expiry time, capped to 1 hour max to avoid setTimeout overflow
-    const rawMs = (this.expiresIn || 3600) * 0.8 * 1000;
-    const refreshMs = Math.min(rawMs, 3600 * 1000); // Cap at 1 hour
-    this._tokenRefreshTimer = setTimeout(async () => {
-      try {
-        this.log.info('Refreshing MirAIe access token...');
-        await this.authenticate(this.username, this.password);
-      } catch (error) {
-        this.log.error('Token refresh failed:', error.message);
-        // Retry in 60 seconds
-        setTimeout(() => this._scheduleTokenRefresh(), 60000);
+    const MAX_TIMEOUT_MS = 2147483647; // 2^31-1 ms (~24.8 days), JS setTimeout max
+    const refreshMs = (this.expiresIn || 3600) * 0.8 * 1000;
+    const refreshHours = Math.round(refreshMs / 3600000);
+    const expiryHours = Math.round((this.expiresIn || 3600) / 3600);
+    this.log.info(`Token refresh scheduled in ${refreshHours}h (expires in ${expiryHours}h)`);
+
+    this._scheduleTokenRefreshAt(Date.now() + refreshMs, MAX_TIMEOUT_MS);
+  }
+
+  /**
+   * Internal: schedule a timer that fires at the target timestamp.
+   * If the wait exceeds JS setTimeout max, chains intermediate timers.
+   */
+  _scheduleTokenRefreshAt(targetTime, maxTimeout) {
+    const remaining = targetTime - Date.now();
+
+    if (remaining <= 0) {
+      // Time to refresh
+      this._doTokenRefresh();
+      return;
+    }
+
+    const delay = Math.min(remaining, maxTimeout);
+    this._tokenRefreshTimer = setTimeout(() => {
+      if (Date.now() >= targetTime) {
+        this._doTokenRefresh();
+      } else {
+        // Not yet — chain another timer for the remaining time
+        this._scheduleTokenRefreshAt(targetTime, maxTimeout);
       }
-    }, refreshMs);
+    }, delay);
+  }
+
+  async _doTokenRefresh() {
+    try {
+      this.log.info('Refreshing MirAIe access token...');
+      await this.authenticate(this.username, this.password);
+    } catch (error) {
+      this.log.error('Token refresh failed:', error.message);
+      // Retry in 60 seconds
+      this._tokenRefreshTimer = setTimeout(() => this._scheduleTokenRefresh(), 60000);
+    }
   }
 
   /**
