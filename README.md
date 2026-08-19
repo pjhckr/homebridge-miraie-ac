@@ -14,8 +14,8 @@ Each AC unit automatically discovers its supported features directly from the Mi
 | **Vertical Swing** | Fan Slider | Discrete Swing Control: Auto (0%), Pos 1 (20%), Pos 2 (40%), Pos 3 (60%), Pos 4 (80%), Pos 5 (100%) |
 | **Horizontal Swing** | Fan Slider | Discrete Swing Control: Auto (0%), Pos 1 (20%), Pos 2 (40%), Pos 3 (60%), Pos 4 (80%), Pos 5 (100%) |
 | **Dry Mode** | Switch | Toggle Dehumidifier (Dry) Mode |
-| **Converti HC** | Switch | Toggle 110% Capacity (High Capacity) Mode |
-| **Converti 40%** | Switch | Toggle 40% Capacity Mode |
+| **Converti HC** | Switch | Toggle 110 Capacity (High Capacity) Mode |
+| **Converti 40** | Switch | Toggle 40 Capacity Mode |
 | **Eco Mode** | Switch | Toggle energy-saving Eco Mode |
 | **Powerful Mode** | Switch | Toggle Boost/Turbo Mode |
 | **Clean Mode** | Switch | Toggle Self-Clean |
@@ -66,7 +66,6 @@ Add the following to your Homebridge `config.json`, or just use the Homebridge W
 | `name` | Yes | `MirAIe AC` | Display name for the platform |
 | `username` | Yes | — | MirAIe mobile number (e.g. 9876543210) or email |
 | `password` | Yes | — | MirAIe account password |
-| `pollingInterval` | No | `300` | Status poll interval in seconds (60–3600) for fallback |
 | `enableDrySwitch` | No | `true` | Expose Dry / Dehumidify Mode switch |
 | `enableEcoSwitch` | No | `true` | Expose Eco Mode switch |
 | `enablePowerfulSwitch` | No | `true` | Expose Powerful Mode switch |

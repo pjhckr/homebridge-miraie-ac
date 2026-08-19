@@ -9,7 +9,6 @@
 const HTTP_CLIENT_ID = 'PBcMcfG19njNCL8AOgvRzIC8AjQa';
 const LOGIN_URL = 'https://auth.miraie.in/simplifi/v1/userManagement/login';
 const HOMES_URL = 'https://app.miraie.in/simplifi/v1/homeManagement/homes';
-const STATUS_URL = 'https://app.miraie.in/simplifi/v1/deviceManagement/devices/{deviceId}/mobile/status';
 const DEVICE_DETAILS_URL = 'https://app.miraie.in/simplifi/v1/deviceManagement/devices/deviceId';
 
 // MQTT Broker
@@ -93,7 +92,6 @@ module.exports = {
   HTTP_CLIENT_ID,
   LOGIN_URL,
   HOMES_URL,
-  STATUS_URL,
   DEVICE_DETAILS_URL,
   MQTT_HOST,
   MQTT_PORT,

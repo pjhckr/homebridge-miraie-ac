@@ -16,21 +16,20 @@ const {
 /**
  * MirAIe AC Accessory
  *
- * Exposes a SINGLE HomeKit accessory containing:
- *   - HeaterCooler service (primary) — Power, Cool/Heat/Auto mode, Target Temperature (16-30°C in 0.5° steps), Swing, Fan speed
- *   - Fan v2 service (linked)        — Granular fan speed control (Auto, Quiet, Low, Medium, High)
- *   - Vertical Swing Control (linked) — 5 position levels + Auto (0=Auto, 1, 2, 3, 4, 5)
- *   - Horizontal Swing Control (linked)— 5 position levels + Auto (0=Auto, 1, 2, 3, 4, 5)
- *   - Converti Capacity Control (linked)— Converti mode (Off, 40%, 55%, 70%, 80%, 90%, FC/100%, HC/110%)
- *   - Dry Mode Switch (linked)       — Toggle Dry / Dehumidify mode
- *   - Fan Mode Switch (linked)       — Toggle Fan-Only mode
- *   - Powerful / Turbo Switch (linked)— Toggle Powerful / Boost mode
- *   - Clean Switch (linked)          — Toggle Self-Clean mode
- *   - Eco Switch (linked)            — Toggle Eco mode
- *   - Display Switch (linked)        — Toggle AC LED display on/off
- *   - TemperatureSensor service      — Room temperature reading + online status
+ * Exposes a multi-service HomeKit accessory containing:
+ *   - HeaterCooler service       — Power, Cool/Heat/Auto mode, Target Temperature (16-30°C in 0.5° steps), Fan speed
+ *   - Fan Speed Switches         — Granular fan speed control (Auto, Quiet, Low, Medium, High)
+ *   - Vertical Swing Control     — 5 position levels + Auto (0=Auto, 1, 2, 3, 4, 5)
+ *   - Horizontal Swing Control   — 5 position levels + Auto (0=Auto, 1, 2, 3, 4, 5)
+ *   - Converti Capacity Control  — Converti mode (110 Capacity, 40 Capacity)
+ *   - Dry Mode Switch            — Toggle Dry / Dehumidify mode
+ *   - Powerful / Turbo Switch    — Toggle Powerful / Boost mode
+ *   - Clean Switch               — Toggle Self-Clean mode
+ *   - Eco Switch                 — Toggle Eco mode
+ *   - Display Switch             — Toggle AC LED display on/off
+ *   - TemperatureSensor service  — Room temperature reading + online status
  *
- * All services are linked under a SINGLE accessory card in Apple Home and Homebridge.
+ * All services are exposed as distinct named services for full visibility in Apple Home and Homebridge.
  */
 class MirAIeAccessory {
   constructor(platform, accessory, device) {
@@ -81,19 +80,20 @@ class MirAIeAccessory {
     this._registerMQTTCallbacks();
   }
 
+  _sanitizeName(name) {
+    if (!name || typeof name !== 'string') return '';
+    return name.replace(/[^\p{L}\p{N} ']/ug, '').replace(/^[ ']*/, '').replace(/[ ']*$/, '');
+  }
+
   _setServiceName(service, name) {
-    // Always set the Name characteristic so Apple Home can display sub-switch labels.
-    // Name is a built-in characteristic on most services, so we use setCharacteristic
-    // directly (no need to add it first).
-    service.setCharacteristic(this.Characteristic.Name, name);
+    const sanitizedName = this._sanitizeName(name);
+    service.setCharacteristic(this.Characteristic.Name, sanitizedName);
     
-    // Set ConfiguredName for iOS 14+ to properly label sub-switches inside the AC card.
-    // Only set it initially to avoid overwriting user customizations (which resets room assignments).
     if (this.Characteristic.ConfiguredName) {
       if (!service.testCharacteristic(this.Characteristic.ConfiguredName)) {
         service.addCharacteristic(this.Characteristic.ConfiguredName);
       }
-      service.setCharacteristic(this.Characteristic.ConfiguredName, name);
+      service.setCharacteristic(this.Characteristic.ConfiguredName, sanitizedName);
     }
   }
 
@@ -210,6 +210,10 @@ class MirAIeAccessory {
       this._removeServiceIfExists(this.Service.TemperatureSensor);
       this.temperatureSensorService = null;
     }
+
+    if (this.platform && this.platform.api && this.platform.api.updatePlatformAccessories) {
+      this.platform.api.updatePlatformAccessories([this.accessory]);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -242,7 +246,9 @@ class MirAIeAccessory {
       this.accessory.getService(this.Service.HeaterCooler) ||
       this.accessory.addService(this.Service.HeaterCooler, this.device.friendlyName);
 
-    this.heaterCoolerService.setPrimaryService(true);
+    // Clear any stale linkedServices array on the primary service from old cache
+    this.heaterCoolerService.linkedServices = [];
+
     this._setServiceName(this.heaterCoolerService, this.device.friendlyName);
 
     // Active (on/off)
@@ -351,9 +357,6 @@ class MirAIeAccessory {
           }
         });
       this.fanSwitches[speed.mode] = svc;
-      if (this.heaterCoolerService) {
-        this.heaterCoolerService.addLinkedService(svc);
-      }
     }
   }
 
@@ -374,9 +377,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.vSwingService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.vSwingService);
-    }
 
     this.vSwingService
       .getCharacteristic(this.Characteristic.Active)
@@ -428,9 +428,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.hSwingService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.hSwingService);
-    }
 
     this.hSwingService
       .getCharacteristic(this.Characteristic.Active)
@@ -466,7 +463,7 @@ class MirAIeAccessory {
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  CONVERTI MODE CONTROL (HC 110%, FC 100%, 90, 80, 70, 55, 40, Off)
+  //  CONVERTI MODE CONTROL (HC 110, FC 100, 90, 80, 70, 55, 40, Off)
   // ═══════════════════════════════════════════════════════════
 
   _setupConvertiHcSwitch() {
@@ -478,7 +475,7 @@ class MirAIeAccessory {
       return;
     }
 
-    const name = '110% Capacity';
+    const name = '110 Capacity';
     this.convertiHcSwitchService =
       this.accessory.getServiceById(this.Service.Switch, subtype) ||
       this.accessory.addService(
@@ -488,9 +485,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.convertiHcSwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.convertiHcSwitchService);
-    }
 
     this.convertiHcSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -510,7 +504,7 @@ class MirAIeAccessory {
       return;
     }
 
-    const name = '40% Capacity';
+    const name = '40 Capacity';
     this.converti40SwitchService =
       this.accessory.getServiceById(this.Service.Switch, subtype) ||
       this.accessory.addService(
@@ -520,9 +514,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.converti40SwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.converti40SwitchService);
-    }
 
     this.converti40SwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -567,9 +558,6 @@ class MirAIeAccessory {
       this.accessory.addService(this.Service.Switch, name, subtype);
 
     this._setServiceName(this.drySwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.drySwitchService);
-    }
 
     this.drySwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -619,9 +607,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.boostSwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.boostSwitchService);
-    }
 
     this.boostSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -664,9 +649,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.cleanSwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.cleanSwitchService);
-    }
 
     this.cleanSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -709,9 +691,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.ecoSwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.ecoSwitchService);
-    }
 
     this.ecoSwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -754,9 +733,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.displaySwitchService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.displaySwitchService);
-    }
 
     this.displaySwitchService
       .getCharacteristic(this.Characteristic.On)
@@ -796,9 +772,6 @@ class MirAIeAccessory {
       );
 
     this._setServiceName(this.temperatureSensorService, name);
-    if (this.heaterCoolerService) {
-      this.heaterCoolerService.addLinkedService(this.temperatureSensorService);
-    }
 
     this.temperatureSensorService
       .getCharacteristic(this.Characteristic.CurrentTemperature)

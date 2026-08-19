@@ -65,7 +65,7 @@
         "title": "Enable Converti Capacity Control",
         "type": "boolean",
         "default": false,
-        "description": "Expose a slider to control Converti capacity (40% to 110%)"
+        "description": "Expose switches to control Converti capacity (40% and 110%)"
       }
     }
   }
