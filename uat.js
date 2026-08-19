@@ -72,16 +72,8 @@ function waitForMqtt(broker, topic, predicate, timeoutMs = 10000) {
 
   // === Step 1: Auth + Discovery ===
   console.log('\n=== Step 1: Auth + Discovery ===');
-  await api.authenticate(username, password);
-  assert(!!api.accessToken, 'Authenticated');
-
-  // Verify token refresh is sane (not 1 hour)
-  const expectedRefreshMs = Math.min(
-    api.expiresIn * 0.8 * 1000,
-    24 * 24 * 3600 * 1000
-  );
-  const expectedRefreshHours = Math.round(expectedRefreshMs / 3600000);
-  assert(expectedRefreshHours > 1, `Token refresh in ${expectedRefreshHours}h (not every 1h)`);
+  await api.getValidToken(username, password);
+  assert(!!api.accessToken, 'Authenticated (accessToken acquired)');
 
   const { homeId, devices } = await api.discoverDevices();
   assert(devices.length > 0, `Found ${devices.length} device(s)`);
@@ -89,33 +81,33 @@ function waitForMqtt(broker, topic, predicate, timeoutMs = 10000) {
   const device = devices[0];
   console.log(`  Target AC: ${device.friendlyName}`);
 
-  // === Step 2: Get original state ===
-  console.log('\n=== Step 2: Record original state ===');
-  const originalStatus = await api.getDeviceStatus(device.id);
-  assert(!!originalStatus, 'Got original status');
-  console.log(`  Power: ${originalStatus.ps}, Mode: ${originalStatus.acmd}, Temp: ${originalStatus.actmp}, Fan: ${originalStatus.acfs}`);
-
-  // === Step 3: Connect MQTT ===
-  console.log('\n=== Step 3: Connect MQTT ===');
+  // === Step 2: Connect MQTT & Get Initial State ===
+  console.log('\n=== Step 2: Connect MQTT & Get Initial State ===');
   const allTopics = [];
   for (const d of devices) {
     allTopics.push(d.statusTopic);
     allTopics.push(d.connectionStatusTopic);
   }
 
-  // Register a basic status tracker
+  let originalStatus = {};
+
   broker.registerCallback(device.statusTopic, (status) => {
     lastStatus = status;
+    if (!originalStatus.ps && status.ps) {
+      originalStatus = { ...status };
+    }
   });
 
   await broker.connect(homeId, api.accessToken, allTopics, async () => {
-    await api.authenticate(username, password);
+    await api.getValidToken(username, password);
     return api.accessToken;
   });
   assert(broker.isConnected, 'MQTT connected');
 
-  // Wait for initial retained messages
-  await new Promise(r => setTimeout(r, 3000));
+  // Wait for initial retained MQTT status message
+  await new Promise(r => setTimeout(r, 2000));
+  assert(!!originalStatus.ps, 'Received initial state via MQTT');
+  console.log(`  Initial State -> Power: ${originalStatus.ps}, Mode: ${originalStatus.acmd}, Temp: ${originalStatus.actmp}, Fan: ${originalStatus.acfs}`);
 
   // === Step 4: Power ON ===
   console.log('\n=== Step 4: Power ON ===');
@@ -211,7 +203,6 @@ function waitForMqtt(broker, topic, predicate, timeoutMs = 10000) {
 
   // Cleanup
   await broker.disconnect();
-  api.destroy();
 
   console.log('\n========================================');
   console.log(`  UAT Complete: ${passed} passed, ${failed} failed`);

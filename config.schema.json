@@ -25,14 +25,6 @@
         "description": "Your MirAIe account password",
         "required": true
       },
-      "pollingInterval": {
-        "title": "Polling Interval (seconds)",
-        "type": "integer",
-        "default": 300,
-        "minimum": 60,
-        "maximum": 3600,
-        "description": "How often to poll the API for status updates (as a fallback to MQTT). Default: 300s (5 min)"
-      },
       "enableDrySwitch": {
         "title": "Enable Dry Mode Switch",
         "type": "boolean",

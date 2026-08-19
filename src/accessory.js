@@ -82,18 +82,18 @@ class MirAIeAccessory {
   }
 
   _setServiceName(service, name) {
-    if (!service.testCharacteristic(this.Characteristic.Name)) {
-      service.addCharacteristic(this.Characteristic.Name);
-      service.setCharacteristic(this.Characteristic.Name, name);
-    }
+    // Always set the Name characteristic so Apple Home can display sub-switch labels.
+    // Name is a built-in characteristic on most services, so we use setCharacteristic
+    // directly (no need to add it first).
+    service.setCharacteristic(this.Characteristic.Name, name);
     
-    // Set ConfiguredName for iOS 14+ to properly label sub-switches inside the AC card
-    // Only set it initially to avoid overwriting user customizations (which resets room assignments)
+    // Set ConfiguredName for iOS 14+ to properly label sub-switches inside the AC card.
+    // Only set it initially to avoid overwriting user customizations (which resets room assignments).
     if (this.Characteristic.ConfiguredName) {
       if (!service.testCharacteristic(this.Characteristic.ConfiguredName)) {
         service.addCharacteristic(this.Characteristic.ConfiguredName);
-        service.setCharacteristic(this.Characteristic.ConfiguredName, name);
       }
+      service.setCharacteristic(this.Characteristic.ConfiguredName, name);
     }
   }
 
@@ -330,7 +330,7 @@ class MirAIeAccessory {
       this._setServiceName(svc, speed.name);
 
       svc.getCharacteristic(this.Characteristic.On)
-        .onGet(() => this.state.fanMode === speed.mode)
+        .onGet(() => this.state.power === POWER_MODE.ON && this.state.fanMode === speed.mode)
         .onSet(async (value) => {
           if (value) {
             this.state.fanMode = speed.mode;
@@ -340,6 +340,9 @@ class MirAIeAccessory {
               this._pushUpdatesToHomeKit();
             } catch (error) {
               this.log.error(`[${this.device.friendlyName}] Failed to set fan:`, error.message);
+              throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+              );
             }
           } else {
             // Turning off a switch does nothing, as one mode must always be active.
@@ -377,7 +380,7 @@ class MirAIeAccessory {
 
     this.vSwingService
       .getCharacteristic(this.Characteristic.Active)
-      .onGet(() => (this.state.vSwing !== undefined ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE))
+      .onGet(() => (this.state.power === POWER_MODE.ON && this.state.vSwing !== undefined ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE))
       .onSet(async (value) => {
         const mode = value === this.Characteristic.Active.ACTIVE ? SWING_MODE.AUTO : SWING_MODE.ONE;
         await this._setVerticalSwingMode(mode);
@@ -402,6 +405,9 @@ class MirAIeAccessory {
       this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set vertical swing:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
@@ -428,7 +434,7 @@ class MirAIeAccessory {
 
     this.hSwingService
       .getCharacteristic(this.Characteristic.Active)
-      .onGet(() => (this.state.hSwing !== undefined ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE))
+      .onGet(() => (this.state.power === POWER_MODE.ON && this.state.hSwing !== undefined ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE))
       .onSet(async (value) => {
         const mode = value === this.Characteristic.Active.ACTIVE ? SWING_MODE.AUTO : SWING_MODE.ONE;
         await this._setHorizontalSwingMode(mode);
@@ -453,6 +459,9 @@ class MirAIeAccessory {
       this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set horizontal swing:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
@@ -485,7 +494,7 @@ class MirAIeAccessory {
 
     this.convertiHcSwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.convertiMode === CONVERTI_MODE.HC)
+      .onGet(() => this.state.power === POWER_MODE.ON && this.state.convertiMode === CONVERTI_MODE.HC)
       .onSet(async (value) => {
         const mode = value ? CONVERTI_MODE.HC : CONVERTI_MODE.OFF;
         await this._setConvertiMode(mode);
@@ -517,7 +526,7 @@ class MirAIeAccessory {
 
     this.converti40SwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.convertiMode === CONVERTI_MODE.C40)
+      .onGet(() => this.state.power === POWER_MODE.ON && this.state.convertiMode === CONVERTI_MODE.C40)
       .onSet(async (value) => {
         const mode = value ? CONVERTI_MODE.C40 : CONVERTI_MODE.OFF;
         await this._setConvertiMode(mode);
@@ -532,6 +541,9 @@ class MirAIeAccessory {
       this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set converti mode:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
@@ -577,6 +589,9 @@ class MirAIeAccessory {
           this._pushUpdatesToHomeKit();
         } catch (error) {
           this.log.error(`[${this.device.friendlyName}] Failed to set dry mode:`, error.message);
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+          );
         }
       });
   }
@@ -610,7 +625,7 @@ class MirAIeAccessory {
 
     this.boostSwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.presetMode === PRESET_MODE.BOOST)
+      .onGet(() => this.state.power === POWER_MODE.ON && this.state.presetMode === PRESET_MODE.BOOST)
       .onSet(async (value) => {
         const mode = value ? PRESET_MODE.BOOST : PRESET_MODE.NONE;
         this.state.presetMode = mode;
@@ -620,6 +635,9 @@ class MirAIeAccessory {
           this._updatePresetSwitches();
         } catch (error) {
           this.log.error(`[${this.device.friendlyName}] Failed to set powerful mode:`, error.message);
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+          );
         }
       });
   }
@@ -652,7 +670,7 @@ class MirAIeAccessory {
 
     this.cleanSwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.presetMode === PRESET_MODE.CLEAN)
+      .onGet(() => this.state.power === POWER_MODE.ON && this.state.presetMode === PRESET_MODE.CLEAN)
       .onSet(async (value) => {
         const mode = value ? PRESET_MODE.CLEAN : PRESET_MODE.NONE;
         this.state.presetMode = mode;
@@ -662,6 +680,9 @@ class MirAIeAccessory {
           this._updatePresetSwitches();
         } catch (error) {
           this.log.error(`[${this.device.friendlyName}] Failed to set clean mode:`, error.message);
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+          );
         }
       });
   }
@@ -694,7 +715,7 @@ class MirAIeAccessory {
 
     this.ecoSwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.presetMode === PRESET_MODE.ECO)
+      .onGet(() => this.state.power === POWER_MODE.ON && this.state.presetMode === PRESET_MODE.ECO)
       .onSet(async (value) => {
         const mode = value ? PRESET_MODE.ECO : PRESET_MODE.NONE;
         this.state.presetMode = mode;
@@ -704,6 +725,9 @@ class MirAIeAccessory {
           this._updatePresetSwitches();
         } catch (error) {
           this.log.error(`[${this.device.friendlyName}] Failed to set eco mode:`, error.message);
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+          );
         }
       });
   }
@@ -736,7 +760,7 @@ class MirAIeAccessory {
 
     this.displaySwitchService
       .getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.state.display === DISPLAY_MODE.ON)
+      .onGet(() => this.state.power === POWER_MODE.ON && this.state.display === DISPLAY_MODE.ON)
       .onSet(async (value) => {
         const mode = value ? DISPLAY_MODE.ON : DISPLAY_MODE.OFF;
         this.state.display = mode;
@@ -745,6 +769,9 @@ class MirAIeAccessory {
           this.log.info(`[${this.device.friendlyName}] Display: ${mode}`);
         } catch (error) {
           this.log.error(`[${this.device.friendlyName}] Failed to set display:`, error.message);
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+          );
         }
       });
   }
@@ -802,6 +829,9 @@ class MirAIeAccessory {
       this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set power:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
@@ -871,6 +901,9 @@ class MirAIeAccessory {
       this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set mode:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
@@ -882,6 +915,9 @@ class MirAIeAccessory {
       this.log.info(`[${this.device.friendlyName}] Temperature: ${temp}°C`);
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set temp:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
@@ -918,27 +954,32 @@ class MirAIeAccessory {
       this._pushUpdatesToHomeKit();
     } catch (error) {
       this.log.error(`[${this.device.friendlyName}] Failed to set fan:`, error.message);
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
     }
   }
 
 
   _updatePresetSwitches() {
+    const isOn = this.state.power === POWER_MODE.ON;
+
     if (this.ecoSwitchService) {
       this.ecoSwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.presetMode === PRESET_MODE.ECO);
+        .updateValue(isOn && this.state.presetMode === PRESET_MODE.ECO);
     }
 
     if (this.boostSwitchService) {
       this.boostSwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.presetMode === PRESET_MODE.BOOST);
+        .updateValue(isOn && this.state.presetMode === PRESET_MODE.BOOST);
     }
 
     if (this.cleanSwitchService) {
       this.cleanSwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.presetMode === PRESET_MODE.CLEAN);
+        .updateValue(isOn && this.state.presetMode === PRESET_MODE.CLEAN);
     }
   }
 
@@ -1073,24 +1114,27 @@ class MirAIeAccessory {
         .updateValue(this._getRotationSpeed());
     }
 
+    // Dry switch (already power-gated)
     if (this.drySwitchService) {
       this.drySwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.hvacMode === HVAC_MODE.DRY && this.state.power === POWER_MODE.ON);
+        .updateValue(this.state.power === POWER_MODE.ON && this.state.hvacMode === HVAC_MODE.DRY);
     }
 
     // Fan Speed Switches
     if (this.fanSwitches) {
+      const isOn = this.state.power === POWER_MODE.ON;
       for (const [mode, svc] of Object.entries(this.fanSwitches)) {
-        svc.getCharacteristic(this.Characteristic.On).updateValue(this.state.fanMode === mode);
+        svc.getCharacteristic(this.Characteristic.On).updateValue(isOn && this.state.fanMode === mode);
       }
     }
 
     // Vertical Swing
     if (this.vSwingService) {
+      const vSwingActive = this.state.power === POWER_MODE.ON && this.state.vSwing !== undefined;
       this.vSwingService
         .getCharacteristic(this.Characteristic.Active)
-        .updateValue(this.state.vSwing !== undefined ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE);
+        .updateValue(vSwingActive ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE);
 
       this.vSwingService
         .getCharacteristic(this.Characteristic.RotationSpeed)
@@ -1099,9 +1143,10 @@ class MirAIeAccessory {
 
     // Horizontal Swing
     if (this.hSwingService) {
+      const hSwingActive = this.state.power === POWER_MODE.ON && this.state.hSwing !== undefined;
       this.hSwingService
         .getCharacteristic(this.Characteristic.Active)
-        .updateValue(this.state.hSwing !== undefined ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE);
+        .updateValue(hSwingActive ? this.Characteristic.Active.ACTIVE : this.Characteristic.Active.INACTIVE);
 
       this.hSwingService
         .getCharacteristic(this.Characteristic.RotationSpeed)
@@ -1112,14 +1157,14 @@ class MirAIeAccessory {
     if (this.convertiHcSwitchService) {
       this.convertiHcSwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.convertiMode === CONVERTI_MODE.HC);
+        .updateValue(this.state.power === POWER_MODE.ON && this.state.convertiMode === CONVERTI_MODE.HC);
     }
 
     // Converti 40% Switch
     if (this.converti40SwitchService) {
       this.converti40SwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.convertiMode === CONVERTI_MODE.C40);
+        .updateValue(this.state.power === POWER_MODE.ON && this.state.convertiMode === CONVERTI_MODE.C40);
     }
 
     // Temperature sensor
@@ -1133,7 +1178,7 @@ class MirAIeAccessory {
     if (this.displaySwitchService) {
       this.displaySwitchService
         .getCharacteristic(this.Characteristic.On)
-        .updateValue(this.state.display === DISPLAY_MODE.ON);
+        .updateValue(this.state.power === POWER_MODE.ON && this.state.display === DISPLAY_MODE.ON);
     }
 
     // Preset switches

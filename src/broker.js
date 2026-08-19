@@ -23,6 +23,7 @@ class MirAIeBroker {
     this.log = log;
     this.client = null;
     this.statusCallbacks = new Map();
+    this.pendingRequests = new Map();
     this.topics = [];
     this._reconnectInterval = 5000;
     this._connected = false;
@@ -79,9 +80,10 @@ class MirAIeBroker {
         this._connected = true;
         this.log.info('Connected to MirAIe MQTT broker');
 
-        // Subscribe to all device topics
+        // Subscribe to all device topics with QoS 1 (at-least-once delivery)
+        // to ensure status updates are not silently dropped by the broker
         for (const topic of this.topics) {
-          this.client.subscribe(topic, (err) => {
+          this.client.subscribe(topic, { qos: 1 }, (err) => {
             if (err) {
               this.log.error(`Failed to subscribe to ${topic}:`, err.message);
             } else {
@@ -96,6 +98,14 @@ class MirAIeBroker {
       this.client.on('message', (topic, payload) => {
         try {
           const parsed = JSON.parse(payload.toString());
+
+          // 1-to-1 correlation: resolve pending request if sid matches
+          if (parsed.sid && this.pendingRequests.has(parsed.sid)) {
+            const req = this.pendingRequests.get(parsed.sid);
+            this.pendingRequests.delete(parsed.sid);
+            req.resolve(parsed);
+          }
+
           const callback = this.statusCallbacks.get(topic);
           if (callback) {
             callback(parsed);
@@ -152,23 +162,52 @@ class MirAIeBroker {
   }
 
   /**
-   * Publish a command to a device's control topic
+   * Publish a command to a device's control topic with 1-to-1 response mapping (sid correlation)
    * @param {string} topic - Control topic
    * @param {Object} payload - Command payload
+   * @param {number} [timeoutMs=5000] - Confirmation timeout
    */
-  async publish(topic, payload) {
+  async publish(topic, payload, timeoutMs = 5000) {
     if (!this.client || !this._connected) {
       throw new Error('Cannot publish: MQTT not connected');
     }
 
+    const sid = `hb_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const fullPayload = {
+      ...payload,
+      sid: sid,
+    };
+
     return new Promise((resolve, reject) => {
-      this.client.publish(topic, JSON.stringify(payload), { qos: 1 }, (err) => {
+      const timer = setTimeout(() => {
+        if (this.pendingRequests.has(sid)) {
+          this.pendingRequests.delete(sid);
+          this.log.warn(`AC response timeout (${timeoutMs}ms) for sid: ${sid}`);
+          // Rejection will trigger HapStatusError in accessory setter
+          reject(new Error(`AC response timeout (${timeoutMs}ms)`));
+        }
+      }, timeoutMs);
+
+      this.pendingRequests.set(sid, {
+        resolve: (confirmedStatus) => {
+          clearTimeout(timer);
+          this.log.debug(`1-to-1 confirmation received for sid ${sid}`);
+          resolve(confirmedStatus);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+
+      this.client.publish(topic, JSON.stringify(fullPayload), { qos: 1 }, (err) => {
         if (err) {
+          clearTimeout(timer);
+          this.pendingRequests.delete(sid);
           this.log.error(`Failed to publish to ${topic}:`, err.message);
           reject(err);
         } else {
-          this.log.debug(`Published to ${topic}:`, JSON.stringify(payload));
-          resolve();
+          this.log.debug(`Published to ${topic} (sid: ${sid}):`, JSON.stringify(fullPayload));
         }
       });
     });

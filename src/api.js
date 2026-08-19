@@ -1,41 +1,110 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const {
   HTTP_CLIENT_ID,
   LOGIN_URL,
   HOMES_URL,
-  STATUS_URL,
   DEVICE_DETAILS_URL,
 } = require('./constants');
 
-/**
- * MirAIe HTTP API Client
- * Handles authentication, device discovery, and status polling.
- */
 class MirAIeAPI {
-  constructor(log) {
+  constructor(log, storagePath) {
     this.log = log;
+    this.storagePath = storagePath;
     this.accessToken = null;
     this.refreshToken = null;
-    this.userId = null;
-    this.expiresIn = null;
-    this.username = null;
-    this.password = null;
     this.homeId = null;
-    this._tokenRefreshTimer = null;
   }
 
-  /**
-   * Authenticate with the MirAIe cloud
-   * @param {string} username - Mobile number or email
-   * @param {string} password - Account password
-   * @returns {Promise<boolean>}
-   */
-  async authenticate(username, password) {
-    this.username = username;
-    this.password = password;
+  _getTokenCachePath() {
+    return path.join(this.storagePath, '.miraie-token-cache.json');
+  }
 
+  _loadCachedToken() {
+    try {
+      const cachePath = this._getTokenCachePath();
+      if (!fs.existsSync(cachePath)) {
+        return false;
+      }
+      const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      if (Date.now() < cached.expiresAt - 86400000) {
+        this.accessToken = cached.accessToken;
+        this.refreshToken = cached.refreshToken || null;
+        this.homeId = cached.homeId;
+        return true;
+      }
+      // Keep refreshToken loaded even if accessToken expired, to attempt token refresh
+      this.refreshToken = cached.refreshToken || null;
+      this.homeId = cached.homeId;
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  _saveCachedToken(expiresAt) {
+    try {
+      const cachePath = this._getTokenCachePath();
+      fs.writeFileSync(cachePath, JSON.stringify({
+        accessToken: this.accessToken,
+        refreshToken: this.refreshToken,
+        homeId: this.homeId,
+        expiresAt: expiresAt,
+      }));
+    } catch (e) {
+      this.log.debug('Could not save token cache:', e.message);
+    }
+  }
+
+  async getValidToken(username, password) {
+    if (this._loadCachedToken()) {
+      this.log.info('Using cached authentication token');
+      return this.accessToken;
+    }
+    if (this.refreshToken) {
+      try {
+        this.log.info('Cached access token expired, attempting refresh using refresh token...');
+        await this.refreshAccessToken();
+        return this.accessToken;
+      } catch (e) {
+        this.log.warn('Token refresh failed, falling back to full authentication:', e.message);
+      }
+    }
+    this.log.info('Cached token expired or missing, authenticating...');
+    await this.authenticate(username, password);
+    return this.accessToken;
+  }
+
+  async refreshAccessToken() {
+    if (!this.refreshToken) {
+      throw new Error('No refresh token available');
+    }
+    const data = {
+      clientId: HTTP_CLIENT_ID,
+      refreshToken: this.refreshToken,
+    };
+    const response = await axios.post('https://auth.miraie.in/simplifi/v1/userManagement/token/refresh', data, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (response.status === 200 && response.data.accessToken) {
+      this.accessToken = response.data.accessToken;
+      if (response.data.refreshToken) {
+        this.refreshToken = response.data.refreshToken;
+      }
+      const expiresIn = response.data.expiresIn || 6480000;
+      const expiresAt = Date.now() + (expiresIn * 1000);
+      this._saveCachedToken(expiresAt);
+      const days = Math.round((expiresAt - Date.now()) / 86400000);
+      this.log.info('Token refresh successful (valid for ' + days + ' days)');
+      return true;
+    }
+    throw new Error(`Token refresh failed with status ${response.status}`);
+  }
+
+  async authenticate(username, password) {
     const isEmail = /^[0-9a-zA-Z._]+@[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/.test(username);
 
     const data = {
@@ -57,14 +126,12 @@ class MirAIeAPI {
 
       if (response.status === 200) {
         this.accessToken = response.data.accessToken;
-        this.refreshToken = response.data.refreshToken;
-        this.userId = response.data.userId;
-        this.expiresIn = response.data.expiresIn;
-
-        // Schedule token refresh before expiry (80% of expiry time)
-        this._scheduleTokenRefresh();
-
-        this.log.info('MirAIe authentication successful');
+        this.refreshToken = response.data.refreshToken || null;
+        const expiresIn = response.data.expiresIn || 6480000;
+        const expiresAt = Date.now() + (expiresIn * 1000);
+        this._saveCachedToken(expiresAt);
+        const days = Math.round((expiresAt - Date.now()) / 86400000);
+        this.log.info('Authentication successful (token valid for ' + days + ' days)');
         return true;
       }
 
@@ -79,63 +146,6 @@ class MirAIeAPI {
     }
   }
 
-  /**
-   * Schedule automatic token refresh
-   * Honors the server's actual TTL. Uses chained timers to work around
-   * JavaScript's setTimeout max of ~24.8 days (2^31-1 ms).
-   */
-  _scheduleTokenRefresh() {
-    if (this._tokenRefreshTimer) {
-      clearTimeout(this._tokenRefreshTimer);
-    }
-
-    const MAX_TIMEOUT_MS = 2147483647; // 2^31-1 ms (~24.8 days), JS setTimeout max
-    const refreshMs = (this.expiresIn || 3600) * 0.8 * 1000;
-    const refreshHours = Math.round(refreshMs / 3600000);
-    const expiryHours = Math.round((this.expiresIn || 3600) / 3600);
-    this.log.info(`Token refresh scheduled in ${refreshHours}h (expires in ${expiryHours}h)`);
-
-    this._scheduleTokenRefreshAt(Date.now() + refreshMs, MAX_TIMEOUT_MS);
-  }
-
-  /**
-   * Internal: schedule a timer that fires at the target timestamp.
-   * If the wait exceeds JS setTimeout max, chains intermediate timers.
-   */
-  _scheduleTokenRefreshAt(targetTime, maxTimeout) {
-    const remaining = targetTime - Date.now();
-
-    if (remaining <= 0) {
-      // Time to refresh
-      this._doTokenRefresh();
-      return;
-    }
-
-    const delay = Math.min(remaining, maxTimeout);
-    this._tokenRefreshTimer = setTimeout(() => {
-      if (Date.now() >= targetTime) {
-        this._doTokenRefresh();
-      } else {
-        // Not yet — chain another timer for the remaining time
-        this._scheduleTokenRefreshAt(targetTime, maxTimeout);
-      }
-    }, delay);
-  }
-
-  async _doTokenRefresh() {
-    try {
-      this.log.info('Refreshing MirAIe access token...');
-      await this.authenticate(this.username, this.password);
-    } catch (error) {
-      this.log.error('Token refresh failed:', error.message);
-      // Retry in 60 seconds
-      this._tokenRefreshTimer = setTimeout(() => this._scheduleTokenRefresh(), 60000);
-    }
-  }
-
-  /**
-   * Get authorization headers
-   */
   _getHeaders() {
     return {
       Authorization: `Bearer ${this.accessToken}`,
@@ -143,10 +153,6 @@ class MirAIeAPI {
     };
   }
 
-  /**
-   * Discover all homes and devices
-   * @returns {Promise<{homeId: string, devices: Array}>}
-   */
   async discoverDevices() {
     try {
       const response = await axios.get(HOMES_URL, {
@@ -155,6 +161,18 @@ class MirAIeAPI {
 
       const homeData = response.data[0];
       this.homeId = homeData.homeId;
+
+      // Persist homeId alongside cached token
+      try {
+        const cachePath = this._getTokenCachePath();
+        if (fs.existsSync(cachePath)) {
+          const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          cached.homeId = this.homeId;
+          fs.writeFileSync(cachePath, JSON.stringify(cached));
+        }
+      } catch (e) {
+        this.log.debug('Could not update homeId in token cache:', e.message);
+      }
 
       const devices = [];
 
@@ -217,49 +235,6 @@ class MirAIeAPI {
     } catch (error) {
       this.log.error('Device discovery failed:', error.message);
       throw error;
-    }
-  }
-
-  /**
-   * Get status for a single device
-   * @param {string} deviceId
-   * @returns {Promise<Object>}
-   */
-  async getDeviceStatus(deviceId) {
-    try {
-      const url = STATUS_URL.replace('{deviceId}', deviceId);
-      const response = await axios.get(url, {
-        headers: this._getHeaders(),
-      });
-      return response.data;
-    } catch (error) {
-      this.log.error(`Failed to get status for device ${deviceId}:`, error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Get status for all devices
-   * @param {Array} devices
-   * @returns {Promise<Array>}
-   */
-  async getAllDeviceStatuses(devices) {
-    const statuses = await Promise.allSettled(
-      devices.map((device) => this.getDeviceStatus(device.id)),
-    );
-
-    return statuses.map((result, index) => ({
-      deviceId: devices[index].id,
-      status: result.status === 'fulfilled' ? result.value : null,
-    }));
-  }
-
-  /**
-   * Cleanup
-   */
-  destroy() {
-    if (this._tokenRefreshTimer) {
-      clearTimeout(this._tokenRefreshTimer);
     }
   }
 }

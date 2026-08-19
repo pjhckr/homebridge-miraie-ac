@@ -4,8 +4,7 @@
       "platform": "MirAIeAC",
       "name": "MirAIe AC",
       "username": "<your_miraie_username>",
-      "password": "<your_miraie_password>",
-      "pollingInterval": 300
+      "password": "<your_miraie_password>"
     }
   ]
 }
