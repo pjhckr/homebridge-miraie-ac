@@ -24,7 +24,15 @@ jobs:
         run: npm ci
 
       - name: Publish to NPM
-        run: npm publish
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          NPM_VERSION=$(npm view homebridge-miraie-ac version 2>/dev/null || echo "")
+          if [ "$CURRENT_VERSION" != "$NPM_VERSION" ]; then
+            echo "Publishing version $CURRENT_VERSION to NPM..."
+            npm publish --access public
+          else
+            echo "Version $CURRENT_VERSION is already published on NPM, skipping publish."
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
