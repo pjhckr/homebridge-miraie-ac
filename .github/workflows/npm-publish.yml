@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,9 +38,30 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Generate Changelog from Commits
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "Generating changelog since $PREV_TAG..."
+            LOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges)
+          else
+            echo "Generating changelog for initial tag..."
+            LOG=$(git log --pretty=format:"* %s (%h)" --no-merges)
+          fi
+          
+          {
+            echo "body<<EOF"
+            echo "### 🚀 What's Changed"
+            echo ""
+            echo "$LOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
