@@ -85,6 +85,14 @@ class MirAIeAccessory {
     return name.replace(/[^\p{L}\p{N} ']/ug, '').replace(/^[ ']*/, '').replace(/[ ']*$/, '');
   }
 
+  _checkOnline() {
+    if (!this.state.isOnline) {
+      throw new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
+    }
+  }
+
   _setServiceName(service, name) {
     const sanitizedName = this._sanitizeName(name);
     service.setCharacteristic(this.Characteristic.Name, sanitizedName);
@@ -1044,18 +1052,118 @@ class MirAIeAccessory {
   }
 
   _handleConnectionStatusUpdate(status) {
+    const wasOnline = this.state.isOnline;
     this.state.isOnline = status.onlineStatus === 'true';
     this.log.info(`[${this.device.friendlyName}] Online: ${this.state.isOnline}`);
 
-    if (this.temperatureSensorService) {
-      this.temperatureSensorService
-        .getCharacteristic(this.Characteristic.StatusActive)
-        .updateValue(this.state.isOnline);
+    if (this.state.isOnline !== wasOnline) {
+      this._pushUpdatesToHomeKit();
     }
   }
 
   _pushUpdatesToHomeKit() {
-    // Primary HeaterCooler
+    // When offline, push SERVICE_COMMUNICATION_FAILURE to grey out tiles in Apple Home
+    if (!this.state.isOnline) {
+      const offlineError = new this.platform.api.hap.HapStatusError(
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      );
+
+      // Primary HeaterCooler
+      if (this.heaterCoolerService) {
+        this.heaterCoolerService
+          .getCharacteristic(this.Characteristic.Active)
+          .updateValue(offlineError);
+
+        this.heaterCoolerService
+          .getCharacteristic(this.Characteristic.CurrentHeaterCoolerState)
+          .updateValue(offlineError);
+
+        this.heaterCoolerService
+          .getCharacteristic(this.Characteristic.CurrentTemperature)
+          .updateValue(offlineError);
+      }
+
+      // Dry switch
+      if (this.drySwitchService) {
+        this.drySwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+
+      // Fan Speed Switches
+      if (this.fanSwitches) {
+        for (const svc of Object.values(this.fanSwitches)) {
+          svc.getCharacteristic(this.Characteristic.On).updateValue(offlineError);
+        }
+      }
+
+      // Vertical Swing
+      if (this.vSwingService) {
+        this.vSwingService
+          .getCharacteristic(this.Characteristic.Active)
+          .updateValue(offlineError);
+      }
+
+      // Horizontal Swing
+      if (this.hSwingService) {
+        this.hSwingService
+          .getCharacteristic(this.Characteristic.Active)
+          .updateValue(offlineError);
+      }
+
+      // Converti HC Switch
+      if (this.convertiHcSwitchService) {
+        this.convertiHcSwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+
+      // Converti 40% Switch
+      if (this.converti40SwitchService) {
+        this.converti40SwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+
+      // Temperature sensor
+      if (this.temperatureSensorService) {
+        this.temperatureSensorService
+          .getCharacteristic(this.Characteristic.CurrentTemperature)
+          .updateValue(offlineError);
+
+        this.temperatureSensorService
+          .getCharacteristic(this.Characteristic.StatusActive)
+          .updateValue(false);
+      }
+
+      // Display switch
+      if (this.displaySwitchService) {
+        this.displaySwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+
+      // Preset switches
+      if (this.ecoSwitchService) {
+        this.ecoSwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+      if (this.boostSwitchService) {
+        this.boostSwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+      if (this.cleanSwitchService) {
+        this.cleanSwitchService
+          .getCharacteristic(this.Characteristic.On)
+          .updateValue(offlineError);
+      }
+
+      return;
+    }
+
+    // Primary HeaterCooler (Online)
     if (this.heaterCoolerService) {
       this.heaterCoolerService
         .getCharacteristic(this.Characteristic.Active)
@@ -1080,7 +1188,6 @@ class MirAIeAccessory {
       this.heaterCoolerService
         .getCharacteristic(this.Characteristic.HeatingThresholdTemperature)
         .updateValue(this.state.temperature);
-
 
       this.heaterCoolerService
         .getCharacteristic(this.Characteristic.RotationSpeed)
@@ -1145,6 +1252,10 @@ class MirAIeAccessory {
       this.temperatureSensorService
         .getCharacteristic(this.Characteristic.CurrentTemperature)
         .updateValue(this.state.roomTemperature);
+
+      this.temperatureSensorService
+        .getCharacteristic(this.Characteristic.StatusActive)
+        .updateValue(true);
     }
 
     // Display switch

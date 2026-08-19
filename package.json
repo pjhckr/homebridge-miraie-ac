@@ -1,6 +1,6 @@
 {
   "name": "homebridge-miraie-ac",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Homebridge plugin for Panasonic MirAIe Air Conditioners",
   "main": "src/index.js",
   "scripts": {
